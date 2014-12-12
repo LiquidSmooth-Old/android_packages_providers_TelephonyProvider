@@ -98,6 +98,7 @@ public class MmsSmsProvider extends ContentProvider {
     private static final int URI_MESSAGE_ID_TO_THREAD              = 18;
     private static final int URI_MAILBOX_MESSAGES                  = 19;
     private static final int URI_SEARCH_MESSAGE                    = 20;
+    private static final int URI_CONVERSATION_TYPE_COUNT           = 21;
     // Escape character
     private static final char SEARCH_ESCAPE_CHARACTER = '!';
 
@@ -217,6 +218,10 @@ public class MmsSmsProvider extends ContentProvider {
             "(part._id = words.source_id) AND " +
             "(words.table_to_use=2))";
 
+    private static final String[] TYPE_COUNT_PROJECTION = new String[] {
+            MmsSms.TYPE_DISCRIMINATOR_COLUMN, "count(*) as " + MmsSms.TRANSPORT_TYPE_COUNT_COLUMN
+    };
+
     // This code queries the sms and mms tables and returns a unified result set
     // of text matches.  We query the sms table which is pretty simple.  We also
     // query the pdu, part and addr table to get the mms result.  Notet we're
@@ -285,6 +290,8 @@ public class MmsSmsProvider extends ContentProvider {
         URI_MATCHER.addURI(
                 AUTHORITY, "conversations/#/recipients",
                 URI_CONVERSATIONS_RECIPIENTS);
+        URI_MATCHER.addURI(
+                AUTHORITY, "conversations/type/#", URI_CONVERSATION_TYPE_COUNT);
 
         URI_MATCHER.addURI(
                 AUTHORITY, "conversations/#/subject",
@@ -401,7 +408,7 @@ public class MmsSmsProvider extends ContentProvider {
                 break;
             case URI_CONVERSATIONS_MESSAGES:
                 cursor = getConversationMessages(uri.getPathSegments().get(1), projection,
-                        selection, sortOrder);
+                        selection, sortOrder, false);
                 break;
             case URI_MAILBOX_MESSAGES:
                 cursor = getMailboxMessages(
@@ -558,6 +565,11 @@ public class MmsSmsProvider extends ContentProvider {
             }
             case URI_FIRST_LOCKED_MESSAGE_ALL: {
                 cursor = getFirstLockedMessage(projection, selection, sortOrder);
+                break;
+            }
+            case URI_CONVERSATION_TYPE_COUNT: {
+                cursor = getConversationMessages(uri.getPathSegments().get(2), projection,
+                        selection, sortOrder, true);
                 break;
             }
             default:
@@ -1011,7 +1023,7 @@ public class MmsSmsProvider extends ContentProvider {
      */
     private Cursor getCompleteConversations(String[] projection,
             String selection, String sortOrder) {
-        String unionQuery = buildConversationQuery(projection, selection, sortOrder);
+        String unionQuery = buildConversationQuery(projection, selection, sortOrder, false);
 
         return mOpenHelper.getReadableDatabase().rawQuery(unionQuery, EMPTY_STRING_ARRAY);
     }
@@ -1040,7 +1052,7 @@ public class MmsSmsProvider extends ContentProvider {
      */
     private Cursor getConversationMessages(
             String threadIdString, String[] projection, String selection,
-            String sortOrder) {
+            String sortOrder, boolean typeCountOnly) {
         try {
             Long.parseLong(threadIdString);
         } catch (NumberFormatException exception) {
@@ -1050,8 +1062,7 @@ public class MmsSmsProvider extends ContentProvider {
 
         String finalSelection = concatSelections(
                 selection, "thread_id = " + threadIdString);
-        String unionQuery = buildConversationQuery(projection, finalSelection, sortOrder);
-
+        String unionQuery = buildConversationQuery(projection, finalSelection, sortOrder, typeCountOnly);
         return mOpenHelper.getReadableDatabase().rawQuery(unionQuery, EMPTY_STRING_ARRAY);
     }
 
@@ -1416,7 +1427,7 @@ public class MmsSmsProvider extends ContentProvider {
     }
 
     private static String buildConversationQuery(String[] projection,
-            String selection, String sortOrder) {
+            String selection, String sortOrder, boolean typeCountOnly) {
         String[] mmsProjection = createMmsProjection(projection);
 
         SQLiteQueryBuilder mmsQueryBuilder = new SQLiteQueryBuilder();
@@ -1460,7 +1471,8 @@ public class MmsSmsProvider extends ContentProvider {
         outerQueryBuilder.setTables("(" + unionQuery + ")");
 
         return outerQueryBuilder.buildQuery(
-                smsColumns, null, null, null, sortOrder, null);
+                typeCountOnly ? TYPE_COUNT_PROJECTION : projection, null,
+                typeCountOnly ? MmsSms.TYPE_DISCRIMINATOR_COLUMN : null, null, sortOrder, null);
     }
 
     @Override
